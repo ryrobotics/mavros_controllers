@@ -9,6 +9,7 @@ add_message_files(
   DIRECTORY msg
   FILES
   FlatTarget.msg
+  PositionCommand.msg
 )
 
 generate_messages(DEPENDENCIES geometry_msgs sensor_msgs std_msgs)

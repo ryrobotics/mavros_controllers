@@ -63,6 +63,10 @@
 #include <std_msgs/Float32.h>
 #include <Eigen/Dense>
 
+// for ego planner v2
+// #include <quadrotor_msgs/PositionCommand.h>
+#include <controller_msgs/PositionCommand.h>
+
 #include <controller_msgs/FlatTarget.h>
 #include <dynamic_reconfigure/server.h>
 #include <geometric_controller/GeometricControllerConfig.h>
@@ -96,6 +100,7 @@ class geometricCtrl {
   ros::NodeHandle nh_;
   ros::NodeHandle nh_private_;
   ros::Subscriber referenceSub_;
+  ros::Subscriber egoreferenceSub_;
   ros::Subscriber flatreferenceSub_;
   ros::Subscriber multiDOFJointSub_;
   ros::Subscriber mavstateSub_;
@@ -106,6 +111,7 @@ class geometricCtrl {
   ros::Publisher referencePosePub_;
   ros::Publisher posehistoryPub_;
   ros::Publisher systemstatusPub_;
+  ros::Publisher egotriggerPub_;
   ros::ServiceClient arming_client_;
   ros::ServiceClient set_mode_client_;
   ros::ServiceServer ctrltriggerServ_;
@@ -147,12 +153,16 @@ class geometricCtrl {
   void pubReferencePose(const Eigen::Vector3d &target_position, const Eigen::Vector4d &target_attitude);
   void pubPoseHistory();
   void pubSystemStatus();
+  void pubEgoTrigger();
   void appendPoseHistory();
   void odomCallback(const nav_msgs::OdometryConstPtr &odomMsg);
+
   void targetCallback(const geometry_msgs::TwistStamped &msg);
   void flattargetCallback(const controller_msgs::FlatTarget &msg);
   void yawtargetCallback(const std_msgs::Float32 &msg);
   void multiDOFJointCallback(const trajectory_msgs::MultiDOFJointTrajectory &msg);
+  void egotargetCallback(const controller_msgs::PositionCommand &msg);
+
   void keyboardCallback(const geometry_msgs::Twist &msg);
   void cmdloopCallback(const ros::TimerEvent &event);
   void mavstateCallback(const mavros_msgs::State::ConstPtr &msg);

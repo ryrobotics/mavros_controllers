@@ -56,6 +56,8 @@ geometricCtrl::geometricCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &n
       nh_.subscribe("reference/yaw", 1, &geometricCtrl::yawtargetCallback, this, ros::TransportHints().tcpNoDelay());
   multiDOFJointSub_ = nh_.subscribe("command/trajectory", 1, &geometricCtrl::multiDOFJointCallback, this,
                                     ros::TransportHints().tcpNoDelay());
+  egoreferenceSub_ = nh_.subscribe("command/egoplanner", 1, &geometricCtrl::egotargetCallback, this,
+                                    ros::TransportHints().tcpNoDelay());
   mavstateSub_ =
       nh_.subscribe("mavros/state", 1, &geometricCtrl::mavstateCallback, this, ros::TransportHints().tcpNoDelay());
   mavposeSub_ = nh_.subscribe("mavros/local_position/pose", 1, &geometricCtrl::mavposeCallback, this,
@@ -73,6 +75,7 @@ geometricCtrl::geometricCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &n
   target_pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("mavros/setpoint_position/local", 10);
   posehistoryPub_ = nh_.advertise<nav_msgs::Path>("geometric_controller/path", 10);
   systemstatusPub_ = nh_.advertise<mavros_msgs::CompanionProcessStatus>("mavros/companion_process/status", 1);
+  egotriggerPub_ = nh_.advertise<geometry_msgs::PoseStamped>("/traj_start_trigger", 10);
   arming_client_ = nh_.serviceClient<mavros_msgs::CommandBool>("mavros/cmd/arming");
   set_mode_client_ = nh_.serviceClient<mavros_msgs::SetMode>("mavros/set_mode");
   land_service_ = nh_.advertiseService("land", &geometricCtrl::landCallback, this);
@@ -207,6 +210,26 @@ void geometricCtrl::multiDOFJointCallback(const trajectory_msgs::MultiDOFJointTr
   }
 }
 
+void geometricCtrl::egotargetCallback(const controller_msgs::PositionCommand &msg) {
+  reference_request_last_ = reference_request_now_;
+
+  targetPos_prev_ = targetPos_;
+  targetVel_prev_ = targetVel_;
+
+  reference_request_now_ = ros::Time::now();
+  reference_request_dt_ = (reference_request_now_ - reference_request_last_).toSec();
+
+  // IGNORE_SNAP
+  targetPos_ = toEigen(msg.position);
+  targetVel_ = toEigen(msg.velocity);
+  targetAcc_ = toEigen(msg.acceleration);
+  targetJerk_ = toEigen(msg.jerk);
+  targetSnap_ = Eigen::Vector3d::Zero();
+
+  // ignore yaw_rate from planner
+  if (!velocity_yaw_) mavYaw_ = double(tf2NormalizeAngle(msg.yaw));
+}
+
 void geometricCtrl::mavposeCallback(const geometry_msgs::PoseStamped &msg) {
   if (!received_home_pose) {
     received_home_pose = true;
@@ -239,11 +262,18 @@ void geometricCtrl::cmdloopCallback(const ros::TimerEvent &event) {
       break;
 
     case MISSION_EXECUTION: {
+      ROS_INFO_ONCE("\033[32m[node_state] MISSION_EXECUTION\033[32m");
       Eigen::Vector3d desired_acc;
       if (feedthrough_enable_) {
         desired_acc = targetAcc_;
       } else {
         desired_acc = controlPosition(targetPos_, targetVel_, targetAcc_);
+      }
+      // for ego planner
+      static bool isTriggered = false;
+      if (current_state_.mode == "OFFBOARD" && !sim_enable_ && !isTriggered){
+        pubEgoTrigger();
+        isTriggered = true;
       }
       computeBodyRateCmd(cmdBodyRate_, desired_acc);
       pubReferencePose(targetPos_, q_des);
@@ -254,6 +284,7 @@ void geometricCtrl::cmdloopCallback(const ros::TimerEvent &event) {
     }
 
     case LANDING: {
+      ROS_INFO("\033[32mLANDING\033[32m");
       geometry_msgs::PoseStamped landingmsg;
       landingmsg.header.stamp = ros::Time::now();
       landingmsg.pose = home_pose_;
@@ -347,6 +378,16 @@ void geometricCtrl::pubSystemStatus() {
   msg.state = (int)companion_state_;
 
   systemstatusPub_.publish(msg);
+}
+
+void geometricCtrl::pubEgoTrigger() {
+  geometry_msgs::PoseStamped msg;
+  msg.header.stamp = ros::Time::now();
+  msg.header.frame_id = "world";
+
+  egotriggerPub_.publish(msg);
+
+  ROS_INFO("\033[32mTRIGGER sent to planner\033[32m");
 }
 
 void geometricCtrl::appendPoseHistory() {
