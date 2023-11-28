@@ -82,7 +82,7 @@ geometricCtrl::geometricCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &n
 
   nh_private_.param<string>("mavname", mav_name_, "iris");
   nh_private_.param<int>("ctrl_mode", ctrl_mode_, ERROR_QUATERNION);
-  nh_private_.param<bool>("enable_sim", sim_enable_, true);
+  nh_private_.param<bool>("enable_sim", sim_enable_, false);
   nh_private_.param<bool>("velocity_yaw", velocity_yaw_, false);
   nh_private_.param<double>("max_acc", max_fb_acc_, 9.0);
   nh_private_.param<double>("yaw_heading", mavYaw_, 0.0);
@@ -106,7 +106,7 @@ geometricCtrl::geometricCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &n
   nh_private_.param<int>("posehistory_window", posehistory_window_, 200);
   nh_private_.param<double>("init_pos_x", initTargetPos_x_, 0.0);
   nh_private_.param<double>("init_pos_y", initTargetPos_y_, 0.0);
-  nh_private_.param<double>("init_pos_z", initTargetPos_z_, 2.0);
+  nh_private_.param<double>("init_pos_z", initTargetPos_z_, 1.0);
 
   targetPos_ << initTargetPos_x_, initTargetPos_y_, initTargetPos_z_;  // Initial Position
   targetVel_ << 0.0, 0.0, 0.0;
@@ -271,9 +271,13 @@ void geometricCtrl::cmdloopCallback(const ros::TimerEvent &event) {
       }
       // for ego planner
       static bool isTriggered = false;
-      if (current_state_.mode == "OFFBOARD" && !sim_enable_ && !isTriggered){
+      if (abs(mavPos_(2) - initTargetPos_z_) < 0.1 && !isTriggered){
         pubEgoTrigger();
         isTriggered = true;
+      }
+      static unsigned int count = 0;
+      if (count++ % 100 == 0){
+        cout << setprecision(2) << "targetPos_[ENU]=" << targetPos_.transpose() << " " << mavYaw_ << endl;
       }
       computeBodyRateCmd(cmdBodyRate_, desired_acc);
       pubReferencePose(targetPos_, q_des);
